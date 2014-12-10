@@ -1,0 +1,20 @@
+#!/bin/sh
+
+
+LIBS="Init Volumes Parser Exec Commands Sizes Fstab"
+BIN="bin/setup-storage lib/fai-disk-info lib/fai-vol_id"
+
+REPO="https://raw2.github.com/faiproject/fai/master"
+
+
+for l in $LIBS; do
+    wget -qq -O $l.pm $REPO/lib/setup-storage/$l.pm
+done
+
+for b in $BIN; do
+    out=$(basename $b)
+    wget -qq -O $out $REPO/$b
+    chmod 755 $out
+done
+# fix hard coded path
+sed -i -e '/\/usr\/lib\/fai\/fai-\(vol_id\|disk-info\) not found/d; s,/usr/lib/fai/,./,' setup-storage Fstab.pm

@@ -1,0 +1,81 @@
+---
+
+#
+# ansible-playbook chroot.yml -i inventory -e partition=partition-encrypted-tmpfs
+#
+
+
+- hosts: "localhost"
+  sudo: yes
+  sudo_user: root
+  connection: local
+  
+  vars:
+    - distrib: trusty
+    - mirror: http://archive.ubuntu.com/ubuntu/
+    - partition: partition-whole-disk
+    - si_extra_packages:
+      - openssh-server
+      - live-boot-initramfs-tools
+      - live-boot
+      - xfsprogs
+      - lvm2
+      - openssh-server
+      - grub-pc
+      - python
+      - python-apt
+      - cryptsetup
+      - busybox
+      - dropbear
+    
+  tasks:
+    - name: install debootstrap
+      apt: pkg='{{ item }}' state=present update_cache=yes
+      with_items:
+        - debootstrap
+        - cryptsetup
+
+    - name: Fix debootstrap scripts
+      copy:
+        src="files/{{ item }}"
+        dest="/{{ item }}"
+      with_items:
+        - usr/share/debootstrap/scripts/sid
+        - usr/share/debootstrap/scripts/gutsy
+
+    - name: Link recent distributions
+      file:
+        src='{{ item.def }}'
+        dest='/usr/share/debootstrap/scripts/{{ item.dist }}'
+        state=link
+      with_items:
+        - { dist: trusty, def: gutsy }
+
+
+    - name: Install Linux on local hard drive. This might take some time...
+      system_install:
+        extra_packages='{{ si_extra_packages }}'
+        repository='{{ mirror }}'
+        distro='{{ distrib }}'
+        kernel=yes
+        partition='{{ partition }}'
+
+    # Fix ssh configuration that prevent root login with password.
+    - name: Fix ssh login
+      lineinfile:
+        dest=/srv/target/etc/ssh/sshd_config
+        regexp='^PermitRootLogin .*'
+        line='PermitRootLogin yes'
+        backrefs=yes
+
+    - name: configure grub
+      lineinfile:
+        dest: /srv/target/etc/default/grub
+        regexp: '{{ item.r }}'
+        line: '{{ item.l }}'
+        backrefs: yes
+      with_items:
+        - { r: '^.*(GRUB_HIDDEN_TIMEOUT\s*=.*)', l: '# \1' }
+        - { r: '^.*(GRUB_TERMINAL).*', l: '\1=console' }
+        - { r: '^.*(GRUB_CMDLINE_LINUX_DEFAULT).*' , l: '\1="verbose"' }
+        - { r: '^.*(GRUB_TIMEOUT).*=.*', l: '\1="5"' }

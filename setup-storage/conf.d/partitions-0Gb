@@ -1,0 +1,6 @@
+# Min size: 0Gb
+disk_config disk1 bootable:1 disklabel:gpt-bios
+#disk_config disk1 bootable:1 disklabel:msdos fstabkey:uuid
+#disk_config disk1 bootable:1 disklabel:msdos
+
+primary		/	100%		ext3	rw,errors=remount-ro createopts="-L / -m 5"

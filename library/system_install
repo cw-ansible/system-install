@@ -1,0 +1,633 @@
+#!/usr/bin/python
+# -*- coding: utf-8 -*-
+
+# Copyright © 2014 Sébastien Gross <seb•ɑƬ•chezwam•ɖɵʈ•org>
+# Created: 2014-03-11
+# Last changed: 2014-12-03 00:22:50
+#
+# This program is free software. It comes without any warranty, to
+# the extent permitted by applicable law. You can redistribute it
+# and/or modify it under the terms of the Do What The Fuck You Want
+# To Public License, Version 2, as published by Sam Hocevar. See
+# http://sam.zoy.org/wtfpl/COPYING for more details.
+#
+# This file is not part of Ansible
+
+DOCUMENTATION = '''
+---
+module: system_install
+author: Sebastien Gross
+version_added: "1.0"
+short_description: Install system using C(debootstrap)
+description:
+    - Partition hard drive.
+    - Install minimal system using c(debootstrap).
+    - Install minimal packages if specified.
+    - Install kernel.
+    - Install grub.
+notes:
+    - Works ONLY for Debian and Ubuntu systems.
+    - Use setup-storage which is a part of FAI
+    - WILL ERASE ALL DATA ON THE HARD DRIVE. You have been warned!
+options:
+    path:
+        required: false
+        default: '/srv/target'
+        description:
+            - Path of the target directory. This is where the system would
+              be installed.
+
+    arch:
+        required: false
+        default: 'amd64'
+        description:
+            - target architecture to install.
+
+    distro:
+        required: false
+        default: 'trusty'
+        description:
+            - distribution to install.
+
+    repository:
+        required: false
+        default: 'http://archive.ubuntu.com/ubuntu'
+        description:
+            - source repository to use with C(debootstrap).
+
+    partition:
+        required: false
+        default: None
+        description:
+            - C(setup-storage) file to use for partitionning. Use "auto" for
+              auto partitionning.
+
+    kernel:
+        required: false
+        default: None
+        description:
+            - use "yes" if you want to install kernel in chroot.
+
+    root_passwd:
+        required: false
+        default: 'Ansible'
+        description:
+            - password for root user to be set after installation is complete.
+
+    reboot:
+        required: false
+        default: False
+        description:
+            - reboot server after installation.
+'''
+
+import traceback
+# added to stave off future warnings about apt api
+import warnings
+import os
+import sys
+import subprocess
+import atexit
+import json
+import re
+import shutil
+import datetime
+import fileinput
+
+# import module snippets
+from ansible.module_utils.basic import *
+
+class SystemInstall(AnsibleModule):
+    
+    PSEUDO_FS = ['proc', 'dev', 'dev/pts' ]
+    FAI_FSTAB = '/tmp/fai/fstab'
+    FAI_DISK_VAR = '/tmp/fai/disk_var.sh'
+
+    DISTRO = {
+        'debian': {
+            'components': 'main,contrib,non-free',
+            'kernel': [ 'ipxe', 'firmware-linux-free',
+                        'firmware-linux-nonfree', 'firmware-bnx2' ],
+            'kernel-arch' : [ 'linux-image-%s' ],
+            'dists': [ 'squeeze', 'wheezy', 'jessie', 'sid' ],
+        },
+        'ubuntu': {
+            'components': 'main,restricted,universe,multiverse',
+            'kernel': [ 'linux-image-generic', 'grub-ipxe' ],
+            'dists': [ 'precise', 'saucy', 'trusty', 'utopic', 'vivid' ],
+        },
+    }
+
+    PARTITIONS = [
+        { 'min': 0, 'file': 'partitions-0Gb' },
+        { 'min': 4 * 1024**3, 'file': 'partitions-4Gb' },
+        { 'min': 18 * 1024**3, 'file': 'partitions-18Gb' },
+    ]
+
+    def __init__(self):
+        AnsibleModule.__init__(
+            self,
+            argument_spec=dict(
+                path=dict(required=False, default='/srv/target'),
+                arch=dict(required=False, default='amd64'),
+                distro=dict(required=False, default='trusty'),
+                repository=dict(required=False, default='http://archive.ubuntu.com/ubuntu'),
+                extra_packages=dict(required=False, default=None),
+                kernel=dict(required=False, default=None),
+                partition=dict(required=False, default=None),
+                root_passwd=dict(required=False, default='Ansible'),
+                reboot=dict(required=False, type='bool', default=False),
+            ),
+            supports_check_mode=True)
+        self.changed = False
+        self.msg = []
+        self.stdout = []
+        self.stderr = []
+        self.fstab = None
+        self.logfile = open('/tmp/system-install.log', 'w')
+
+        self.log('Starting install')
+
+
+        for v in self.DISTRO.keys():
+            if self.params['distro'] in self.DISTRO[v]['dists']:
+                self.vendor = v
+                break
+
+
+        if not os.path.isdir(self.params['path']):
+            os.makedirs(self.params['path'])
+
+        self.log('Set install root to %s' % self.params['path'])
+
+
+        if not self.params['extra_packages'] is None:
+            if self.params['extra_packages'].startswith('['):
+                self.params['extra_packages'] = \
+                    self.params['extra_packages'][1:-1].split(', ')
+            else:
+                self.params['extra_packages'] = [ self.params['extra_packages'] ]
+
+        self.tmp_path = os.path.dirname(sys.argv[0])
+
+
+    def log(self, msg):
+        sep = '  '
+        if isinstance(msg, str):
+            msg = [ msg ]
+            sep = ' '
+
+        for m in msg:
+            self.logfile.write('%s%s%s\n' % (
+                datetime.datetime.now().strftime('%Y/%m/%d %H:%M:%S'),
+                sep, m))
+        self.logfile.flush()
+
+    def install_pkgs(self, pkgs, chroot=True, update_cache=False):
+        """Install PKGS on current host. If CHROOT is TRUE, the installation is
+performed on the PATH directory using C(chroot). The packages would be
+installed on the live system otherwise.
+
+If PKGS is a list, a loop is performed for each item.
+        """
+        if chroot:
+            chroot_cmd = [ 'chroot', self.params['path'] ]
+            target = self.params['path']
+        else:
+            chroot_cmd =[]
+            target = '/'
+
+        check_cmd = chroot_cmd + [ 'dpkg-query', '-W', '--showformat',
+                                   '${Version}' ]
+        install_cmd = chroot_cmd + ['apt-get', 'install', '--force-yes',
+                                    '-y', '--no-install-recommends']
+        os.putenv('DEBIAN_FRONTEND', 'noninteractive')
+        os.putenv('DEBIAN_PRIORITY', 'critical')
+
+        if update_cache:
+            self.log('Updating APT cache')
+            cmd = chroot_cmd + [ 'apt-get', 'update' ]
+            rc, out, err = self.run_command(cmd)
+            if rc != 0:
+                self.fail_json(msg="%s failed: %s" %
+                    (' '.join(pipes.quote(arg) for arg in cmd), err),
+                    stdout=out, stderr=err)
+            self.log(out.splitlines())
+
+
+        if isinstance(pkgs, str):
+            pkgs = [ pkgs ]
+
+        for p in pkgs:
+            cmd = check_cmd + [ p ]
+            rc, _out, _err = self.run_command(cmd)
+            if _out != '':
+                self.msg.append("Package %s is installed in %s" % (p, target))
+            else:
+                self.log('Installing packages: %s' % ','.join(pkgs))
+                cmd = install_cmd + [ p ]
+                rc, _out, _err = self.run_command(cmd)
+                if rc != 0:
+                    self.fail_json(msg="%s failed: %s" %
+                        (' '.join(pipes.quote(arg) for arg in cmd), _err),
+                        stdout=_out, stderr=_err)
+                self.log(_out.splitlines())
+                self.changed = True
+                self.msg.append("%s installed in %s" % (p, target))
+                self.stdout.append(_out)
+                self.stderr.append(_err)
+
+    def get_file_content(self, path, default=None):
+        data = default
+        if os.path.exists(path) and os.access(path, os.R_OK):
+            data = open(path).read().strip()
+            if len(data) == 0:
+                data = default
+        try:
+            return int(data)
+        except:
+            return data
+
+
+    def find_hard_drive(self):
+        """Returns a list of all detected hard drives on the target system."""
+        cmd = [ '%s/setup-storage/fai-disk-info' % self.tmp_path ]
+        (rc, out, err) = self.run_command(cmd)
+        if rc != 0:
+            self.log('Searching for harddrive')
+            self.fail_json(msg="%s failed: %s" %
+                             (' '.join(pipes.quote(arg) for arg in cmd), err),
+                             stdout=out, stderr=err)
+            self.log(out.splitlines())
+        drives = out.splitlines()
+        self.drives = []
+        for drive in drives:
+            _new  = {
+                'name': drive,
+                'sector_size': self.get_file_content(
+                    '/sys/block/%s/queue/hw_sector_size' % drive, 512),
+                'size': self.get_file_content(
+                    '/sys/block/%s/size' % drive, 0)
+            }
+            _new['physical_size'] = _new['sector_size'] * _new['size']
+            self.drives.append(_new)
+        return self.drives
+
+    def partition_hard_drive(self):
+        self.install_pkgs(
+            ['liblinux-lvm-perl', 'libparse-recdescent-perl', 'lvm2',
+             'xfsprogs', 'mdadm', 'parted'],
+            chroot=False, update_cache=True)
+
+        partition_conf = self.params['partition']
+        if partition_conf == 'auto':
+            self.find_hard_drive()
+            p_conf = self.PARTITIONS
+            p_conf.sort(key=lambda k: k['min'], reverse=True)
+            for p in p_conf:
+                if self.drives[0]['physical_size'] >= p['min']:
+                    partition_conf = p['file']
+                    break
+            if partition_conf == 'auto':
+                self.fail_json(msg="Could not find automatic partition."
+                               " Please confider to provide one.")
+
+        ## LVM partition have to be manualy removed since setup-storage
+        ## cannot remove existing LVM partitions:
+        # https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=717684
+        # https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=681358
+        self.log('Removing old LVM partitions')
+        for c in [
+                '''lvs --noheadings | awk '{print "/dev/" $2 "/" $1}' '''
+                '''| xargs --no-run-if-empty lvremove -f''',
+                '''pvs --noheadings | awk '{print $1}' | '''
+                '''xargs --no-run-if-empty pvremove -f -f -y''']:
+            rc, out, err = self.run_command(c, use_unsafe_shell=True)
+            if rc != 0:
+                self.fail_json(msg="%s failed: %s\n\nPlease check that partitions are not in use (umount them is necessary)" % (c, err),
+                               stdout=out, stderr=err)
+            self.log(out.splitlines())
+
+        cwd = os.getcwd()
+        os.chdir('%s/setup-storage' % self.tmp_path)
+        cmd = [ './setup-storage', '-d', '-X', '-f', 'conf.d/%s' % partition_conf ]
+        os.chmod('fai-disk-info', stat.S_IEXEC)
+        os.chmod('fai-vol_id', stat.S_IEXEC)
+        cmd = [ 'perl', './setup-storage', '-d', '-X', '-f', 'conf.d/%s' % partition_conf ]
+
+        # setup-storage parses {pv|vg|lv}display output.
+        os.putenv('LC_ALL', 'C')
+        self.log('Running setup-storage -X -f conf.d/%s' % partition_conf)
+        (rc, out, err) = self.run_command(cmd)
+        if rc != 0:
+            self.fail_json(msg="%s failed: %s" %
+                             (' '.join(pipes.quote(arg) for arg in cmd), err),
+                             stdout=out, stderr=err)
+        self.log(out.splitlines())
+        os.chdir(cwd)
+
+    def parse_fstab(self):
+        '''Parse fai-generated fstab and store into object's fstab entry.'''
+        fs = open(self.FAI_FSTAB, 'r')
+        lines = fs.read().splitlines()
+        line_re = re.compile(''.join([
+            '^\s*(?P<device>\S*)',
+            '\s+(?P<directory>\S+)',
+            '\s+(?P<fstype>\S+)',
+            '\s+(?P<options>\S+)',
+            '\s+(?P<dump>\d+)',
+            '\s+(?P<fsck>\d+)',
+            '\s*$']))
+        self.fstab = []
+        for line in lines:
+            sline = line.strip()
+            if sline == '' or sline.startswith('#'):
+                continue
+            match = line_re.match(line)
+            if match:
+                _m = {}
+                _m.update((attr, match.group(attr))
+                          for attr in ['device', 'directory', 'fstype',
+                                       'options', 'dump', 'fsck'])
+                self.fstab.append(_m)
+
+
+    def write_fstab(self):
+        '''Write SELF.FSTAB to target directory'''
+
+        if self.fstab is None:
+            self.parse_fstab
+        
+        dest = open('%s/etc/fstab' % self.params['path'], 'w')
+        dest.write('# fstab file generated by ansible system-install\n\n')
+        
+        for fs in self.fstab:
+            # Do no keep root filesystem if it is a tmpfs.
+            if fs['device'] == 'tmpfs' and fs['directory'] == '/' \
+               and fs['fstype'] == 'tmpfs':
+                continue
+            dest.write('%s\t%s\t%s\t%s\t%s\t%s\n'
+                       % (
+                           fs['device'],
+                           fs['directory'],
+                           fs['fstype'],
+                           fs['options'],
+                           fs['dump'],
+                           fs['fsck']))
+        dest.close()
+
+
+    def mount_fs(self):
+        fstab = self.fstab
+        fstab.sort(key=lambda k: k['directory'])
+
+        for f in fstab:
+            if f['directory'] == 'none':
+                continue
+            _target = '%s/%s' % (self.params['path'], f['directory'])
+            if not os.path.isdir(_target):
+                os.makedirs(_target)
+            if os.path.ismount(_target):
+                continue
+            if f['fstype'] == 'tmpfs':
+                cmd = [ 'mount', '-t', 'tmpfs', 'tmpfs', _target ]
+            else:
+                cmd = [ 'mount', f['device'], _target ]
+            self.log('  Mounting %s to %s' % (f['device'], _target))
+            rc, out, err = self.run_command(cmd)
+            if rc:
+                self.fail_json(
+                     msg="%s failed: %s" %
+                     (' '.join(pipes.quote(arg) for arg in cmd), err),
+                     stdout=out, stderr=err)
+            self.log(out.splitlines())
+
+    def mount_pseudo(self):
+        for p in self.PSEUDO_FS:
+            _target = '%s/%s' % (self.params['path'], p)
+            if not os.path.isdir(_target):
+                os.makedirs(_target)
+            if os.path.ismount(_target):
+                continue
+            cmd = ['mount', '-o',  'bind', '/%s' % p , _target]
+            self.log('Mounting pseudo FS %s to %s' % (p, _target))
+            rc, out, err = self.run_command(cmd)
+            if rc:
+                self.fail_json(
+                    msg="%s failed: %s" %
+                    (' '.join(pipes.quote(arg) for arg in cmd), err),
+                    stdout=out, stderr=err)
+            self.log(out.splitlines())
+
+    def umount_pseudo(self):
+        for p in self.PSEUDO_FS[::-1]:
+            _target = '%s/%s' % (self.params['path'], p)
+            if not os.path.ismount(_target):
+                continue
+            cmd = ['umount', '-l', _target]
+            self.log('Umounting pseudo FS %s' % _target)
+            rc, out, err = self.run_command(cmd)
+            if rc:
+                self.module.fail_json(
+                    msg="%s failed: %s" %
+                    (' '.join(pipes.quote(arg) for arg in cmd), err),
+                    stdout=out, stderr=err)
+            self.log(out.splitlines())
+
+    def umount_fs(self):
+        fstab = self.fstab
+        fstab.sort(key=lambda k: k['directory'], reverse=True)
+        for p in fstab:
+            _target = '%s/%s' % (self.params['path'], p['directory'])
+            if not os.path.ismount(_target):
+                continue
+            cmd = ['umount', '-l', _target]
+            self.log('Umounting FS %s' % _target)
+            rc, out, err = self.run_command(cmd)
+            if rc:
+                self.module.fail_json(
+                    msg="%s failed: %s" %
+                    (' '.join(pipes.quote(arg) for arg in cmd), err),
+                    stdout=out, stderr=err)
+            self.log(out.splitlines())
+
+    def mount(self):
+        self.mount_fs()
+        self.mount_pseudo()
+
+    def umount(self):
+        if self.fstab is None:
+            self.parse_fstab()
+        self.umount_pseudo()
+        self.umount_fs()
+
+    def partition(self):
+        self.partition_hard_drive()
+        self.parse_fstab()
+        self.mount_fs()
+
+
+    def debootstrap(self):
+        self.install_pkgs(['debootstrap'], chroot=False)
+
+        debootstrap = self.get_bin_path('debootstrap', required=True)
+        if os.path.exists('%s/sbin/start-stop-daemon' % self.params['path']):
+            self.msg.append("debootstrap seems to have been run in %s" \
+                        % (self.params['path']))
+            return
+        self.log('Running debootstrap')
+        cmd = [debootstrap, '--arch', self.params['arch'],
+               '--components', self.DISTRO[self.vendor]['components'],
+               self.params['distro'], self.params['path'],
+               self.params['repository'] ]
+        rc, out, err = self.run_command(cmd)
+        if rc:
+            self.fail_json(msg="%s failed: %s" %
+                             (' '.join(pipes.quote(arg) for arg in cmd), err),
+                             stdout=out, stderr=err)
+        self.log(out.splitlines())
+        self.changed = True
+        self.msg.append("debootstrap succeded in %s" % (self.params['path']))
+
+    def setup_policy(self):
+        self.log('Setup policy-rc.d')
+        policy_rc_d = open('%s/usr/sbin/policy-rc.d' % self.params['path'], 'w')
+        policy_rc_d.write('#!/bin/sh\n\nexit 101')
+        policy_rc_d.close()
+        os.chmod('%s/usr/sbin/policy-rc.d' % self.params['path'], 0o755)
+
+    def remove_policy(self):
+        self.log('Remove policy-rc.d')
+        os.unlink('%s/usr/sbin/policy-rc.d' % self.params['path'])
+
+
+    def install_extra_packages(self):
+        self.setup_policy()
+        self.install_pkgs(self.params['extra_packages'], chroot=True)
+        self.remove_policy()
+
+    def install_kernel(self):
+        self.setup_policy()
+        self.mount_pseudo()
+        self.install_pkgs(self.DISTRO[self.vendor]['kernel'], chroot=True)
+
+        if self.DISTRO[self.vendor].has_key('kernel-arch'):
+            for p in self.DISTRO[self.vendor]['kernel-arch']:
+                self.install_pkgs(p % self.params['arch'], chroot=True)
+
+        # if partition is not defined, the installation has been made in a
+        # chroot. Then we do not want to install grub in boot device.
+        if self.params['partition']:
+            line_re = re.compile('.*\${(.+):-"?(.+?)"?}.*')
+            self.disk_vars = {}
+            with open(self.FAI_DISK_VAR, 'r') as fh:
+                for line in fh.readlines():
+                    match = line_re.match(line)
+                    if match:
+                        self.disk_vars[match.group(1)] = match.group(2)
+                fh.close()
+
+            # remove 'set -e' in /usr/sbin/grub-mkconfig to prevent error:
+            #   failed: mount: special device tmpfs does not exist
+            # when / is a tmpfs
+            # Got that issue at least until grub 2.02~beta2-9
+            set_re=re.compile('^(set -e)$')
+            for line in fileinput.input(
+                    '%s/%s' % (self.params['path'], '/usr/sbin/grub-mkconfig'),
+                    inplace = 1):
+                sys.stdout.write(set_re.sub(
+                    r"# \1 # grub-mkconfig does not work well if / is tmpfs",
+                    line))
+
+            # First generate GRUB configuration
+            cmd = [ 'chroot', self.params['path'], 'update-grub']
+            self.log('running update-grub')
+            rc, out, err = self.run_command(cmd)
+            if rc:
+                self.fail_json(msg="%s failed: %s" %
+                                 (' '.join(pipes.quote(arg) for arg in cmd), err),
+                                 stdout=out, stderr=err)
+            self.log(out.splitlines())
+            self.log(err.splitlines())
+            # secondly install grub into boot device
+            cmd = [ 'chroot', self.params['path'], 'grub-install',
+                    self.disk_vars['BOOT_DEVICE'] ]
+
+            self.log('running grub-install %s' % self.disk_vars['BOOT_DEVICE'])
+            rc, out, err = self.run_command(cmd)
+            if rc:
+                self.fail_json(msg="%s failed: %s" %
+                                 (' '.join(pipes.quote(arg) for arg in cmd), err),
+                                 stdout=out, stderr=err)
+            self.log(out.splitlines())
+            self.log(err.splitlines())
+            self.msg.append("grub-install succeded in %s" %
+                            (self.disk_vars['BOOT_DEVICE']))
+            self.stdout.append(out)
+            self.stderr.append(err)
+
+        self.umount_pseudo()
+        self.remove_policy()
+
+
+    def setup_root_passwd(self):
+        cmd = 'echo "root:%s" | chroot %s chpasswd' % \
+              ( self.params['root_passwd'], self.params['path'] )
+        rc, out, err = self.run_command(cmd, use_unsafe_shell=True)
+        self.log('Update root password')
+        if rc:
+            self.fail_json(msg="%s failed: %s" %
+                             (' '.join(pipes.quote(arg) for arg in cmd), err),
+                             stdout=out, stderr=err)
+        self.log(out.splitlines())
+        self.msg.append('root password succeded')
+
+
+    def fix_install(self):
+        self.write_fstab()
+        with open('%s/etc/network/interfaces' % self.params['path'], 'w') as iface:
+            iface.write('\n'.join(
+                [ '# Auto generated file by Ansible system-install',
+                  '',
+                  'auto lo',
+                  'iface lo inet loopback',
+                  '',
+                  'auto eth0',
+                  'iface eth0 inet dhcp',
+                  '# EOF']))
+            iface.close
+
+    def reboot(self):
+        self.log('Reboot server in 10s')
+        print self.jsonify({'changed': self.changed, 'failed': False, 'msg': 'Rebooting in 10s'})
+        rc, out, err = self.run_command('( sleep 10 && reboot --force ) &', use_unsafe_shell=True)
+        if rc:
+            self.fail_json(msg="%s failed: %s" %
+                             (' '.join(pipes.quote(arg) for arg in cmd), err),
+                             stdout=out, stderr=err)
+        self.log(out.splitlines())
+        self.msg.append('reboot in progress succeded')
+        sys.exit(0)
+
+def main():
+    si = SystemInstall()
+
+    if not si.params['partition'] is None:
+        si.partition()
+    si.debootstrap()
+    si.install_extra_packages()
+    if not si.params['kernel'] is None:
+        si.install_kernel()
+    si.setup_root_passwd()
+    si.fix_install()
+    #
+    if not(si.params['reboot'] is False):
+        si.umount()
+        si.reboot()
+
+    si.exit_json(changed=si.changed,
+                 msg='\r\n'.join(si.msg),
+                 stdout='\r\n'.join(si.stdout),
+                 stderr='\r\n'.join(si.stderr))
+
+main()

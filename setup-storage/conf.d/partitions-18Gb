@@ -1,0 +1,19 @@
+# Min size: 20Gb
+disk_config disk1 bootable:1 disklabel:gpt-bios
+#disk_config disk1 bootable:1 disklabel:msdos fstabkey:uuid
+#disk_config disk1 bootable:1 disklabel:msdos
+
+
+primary		/boot	256		ext3	rw,errors=remount-ro createopts="-L /boot -m 5"
+primary		-	0-		-	-
+
+disk_config lvm
+vg		vg00		disk1.2
+vg00-swap	swap		2GiB-4GiB	swap	sw
+vg00-root	/		4GiB		xfs	rw                             createopts="-f -b size=4096 -L /"
+vg00-usr	/usr		4GiB		xfs	ro 			       createopts="-f -b size=4096 -L /usr"
+vg00-var	/var		4GiB		xfs	rw         		       createopts="-f -b size=4096 -L /var"
+vg00-var_tmp	/var/tmp	1GiB-2GiB	xfs	rw,noatime,nosuid,nodev,noexec createopts="-f -b size=4096 -L /var/tmp"
+vg00-tmp	/tmp		1GiB-2GiB	xfs	rw,noatime,nosuid,nodev,noexec createopts="-f -b size=4096 -L /tmp"
+vg00-home	/home		2GiB-4GiB	xfs	rw,noatime,nosuid,nodev,noexec createopts="-f -b size=4096 -L /home"
+vg00-srv 	/srv		0-75%		xfs	rw 			       createopts="-f -b size=4096 -L /srv"
