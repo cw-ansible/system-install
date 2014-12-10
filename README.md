@@ -1,4 +1,9 @@
+[![Tweet this](http://img.shields.io/badge/%20-Tweet-00aced.svg)](https://twitter.com/intent/tweet?text=Easy%20install%20of%20@Debian%20and%20@Ubuntu%20on%20servers%20using%20%23ansible&tw_p=tweetbutton&via=renard_0)
+[![Follow me on twitter](http://img.shields.io/badge/Twitter-Follow-00aced.svg)](https://twitter.com/intent/follow?region=follow_link&screen_name=renard_0&tw_p=followbutton)
+
+
 # System installation
+
 
 This ansible playbook will install a Debian / Ubuntu system on current
 server.
@@ -101,5 +106,6 @@ This is the module file run on target host. It runs:
 
 ## Copyright
 
-Author: Sébastien Gross <seb•ɑƬ•chezwam•ɖɵʈ•org>
+Author: Sébastien Gross `<seb•ɑƬ•chezwam•ɖɵʈ•org>` [@renard_0](https://twitter.com/renard_0)
+
 License: WTFPL, grab your copy here: http://www.wtfpl.net
