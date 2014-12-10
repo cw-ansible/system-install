@@ -1,0 +1,9 @@
+# Min size: 0Gb
+
+disk_config disk1 bootable:1 disklabel:gpt-bios
+primary		-	5G		-	-
+primary		/boot	2G		ext3	rw,errors=remount-ro createopts="-L /boot -m 5"
+primary		/var/lib/ceph 0-	xfs	rw,noatime,osyncisdsync,nobarrier,logbufs=8,logbsize=256k,inode64 createopts="-f -b size=4096 -L CEPH"
+
+disk_config tmpfs
+tmpfs   	/    2G     defaults
