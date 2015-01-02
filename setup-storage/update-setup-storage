@@ -4,7 +4,7 @@
 LIBS="Init Volumes Parser Exec Commands Sizes Fstab"
 BIN="bin/setup-storage lib/fai-disk-info lib/fai-vol_id"
 
-REPO="https://raw2.github.com/faiproject/fai/master"
+REPO="https://raw.githubusercontent.com/faiproject/fai/master"
 
 
 for l in $LIBS; do
