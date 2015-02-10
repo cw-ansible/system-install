@@ -1,3 +1,0 @@
-disk_config disk1 bootable:1 disklabel:gpt-bios
-
-primary		/	0-		xfs	rw,errors=remount-ro createopts="-f -b size=4096 -L /"
