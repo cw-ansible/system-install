@@ -3,7 +3,7 @@
 
 # Copyright © 2014 Sébastien Gross <seb•ɑƬ•chezwam•ɖɵʈ•org>
 # Created: 2014-03-11
-# Last changed: 2014-12-03 00:22:50
+# Last changed: 2015-03-31 02:00:23
 #
 # This program is free software. It comes without any warranty, to
 # the extent permitted by applicable law. You can redistribute it
@@ -51,7 +51,9 @@ options:
 
     repository:
         required: false
-        default: 'http://archive.ubuntu.com/ubuntu'
+        default:
+            'http://archive.ubuntu.com/ubuntu' or 'http://ftp.debian.org/debian'
+            depending on C(distro)
         description:
             - source repository to use with C(debootstrap).
 
@@ -110,14 +112,18 @@ class SystemInstall(AnsibleModule):
                         'firmware-linux-nonfree', 'firmware-bnx2' ],
             'kernel-arch' : [ 'linux-image-%s' ],
             'dists': [ 'squeeze', 'wheezy', 'jessie', 'sid' ],
+            'repository': 'http://ftp.debian.org/debian'
         },
         'ubuntu': {
             'components': 'main,restricted,universe,multiverse',
             'kernel': [ 'linux-image-generic', 'grub-ipxe' ],
             'dists': [ 'precise', 'saucy', 'trusty', 'utopic', 'vivid' ],
+            'repository': 'http://archive.ubuntu.com/ubuntu'
         },
     }
 
+    
+    
     PARTITIONS = [
         { 'min': 0, 'file': 'partitions-0Gb' },
         { 'min': 4 * 1024**3, 'file': 'partitions-4Gb' },
@@ -131,7 +137,7 @@ class SystemInstall(AnsibleModule):
                 path=dict(required=False, default='/srv/target'),
                 arch=dict(required=False, default='amd64'),
                 distro=dict(required=False, default='trusty'),
-                repository=dict(required=False, default='http://archive.ubuntu.com/ubuntu'),
+                repository=dict(required=False, default=None),
                 extra_packages=dict(required=False, default=None),
                 kernel=dict(required=False, default=None),
                 partition=dict(required=False, default=None),
@@ -148,12 +154,17 @@ class SystemInstall(AnsibleModule):
 
         self.log('Starting install')
 
-
+        self.vendor = None
         for v in self.DISTRO.keys():
             if self.params['distro'] in self.DISTRO[v]['dists']:
                 self.vendor = v
                 break
-
+        if self.vendor is None:
+            self.fail_json(msg="No vendor found for distribution %s" %
+                           self.params['distro'])
+            
+        if self.params['repository'] is None:
+            self.params['repository'] = self.DISTRO[self.vendor]['repository']
 
         if not os.path.isdir(self.params['path']):
             os.makedirs(self.params['path'])
