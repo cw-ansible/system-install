@@ -1,0 +1,5 @@
+# Min size: 0Gb
+disk_config disk1 bootable:1 disklabel:gpt-bios
+
+primary		/	0-4GiB		xfs	rw,errors=remount-ro createopts="-f -b size=4096 -L /"
+primary		/srv	0-100%		xfs	rw,errors=remount-ro createopts="-f -b size=4096 -L srv"

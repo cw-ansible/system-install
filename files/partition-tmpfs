@@ -1,0 +1,4 @@
+# Min size: 0Gb
+
+disk_config tmpfs
+tmpfs   	/    2G     defaults
