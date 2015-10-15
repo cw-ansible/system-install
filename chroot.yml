@@ -35,7 +35,8 @@
       with_items:
         - debootstrap
         - cryptsetup
-
+        - python-requests
+        
     - name: Fix debootstrap scripts
       copy:
         src="files/{{ item }}"

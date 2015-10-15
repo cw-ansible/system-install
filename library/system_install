@@ -3,7 +3,7 @@
 
 # Copyright © 2014 Sébastien Gross <seb•ɑƬ•chezwam•ɖɵʈ•org>
 # Created: 2014-03-11
-# Last changed: 2015-03-31 02:00:23
+# Last changed: 2015-10-15 15:54:12
 #
 # This program is free software. It comes without any warranty, to
 # the extent permitted by applicable law. You can redistribute it
@@ -56,6 +56,13 @@ options:
             depending on C(distro)
         description:
             - source repository to use with C(debootstrap).
+
+    image:
+        required: false
+        default: 'http://archive.ubuntu.com/ubuntu'
+        description:
+            - Previously generated base image to deploy instead of running a
+              debian bootstrap.
 
     partition:
         required: false
@@ -138,6 +145,7 @@ class SystemInstall(AnsibleModule):
                 arch=dict(required=False, default='amd64'),
                 distro=dict(required=False, default='trusty'),
                 repository=dict(required=False, default=None),
+                image=dict(required=False, default=None),
                 extra_packages=dict(required=False, default=None),
                 kernel=dict(required=False, default=None),
                 partition=dict(required=False, default=None),
@@ -173,11 +181,12 @@ class SystemInstall(AnsibleModule):
 
 
         if not self.params['extra_packages'] is None:
-            if self.params['extra_packages'].startswith('['):
-                self.params['extra_packages'] = \
-                    self.params['extra_packages'][1:-1].split(', ')
-            else:
-                self.params['extra_packages'] = [ self.params['extra_packages'] ]
+            if type(self.params['extra_packages']) != type([]):
+                if self.params['extra_packages'].startswith('['):
+                    self.params['extra_packages'] = \
+                        self.params['extra_packages'][1:-1].split(', ')
+                else:
+                    self.params['extra_packages'] = [ self.params['extra_packages'] ]
 
         self.tmp_path = os.path.dirname(sys.argv[0])
 
@@ -501,6 +510,22 @@ If PKGS is a list, a loop is performed for each item.
         self.changed = True
         self.msg.append("debootstrap succeded in %s" % (self.params['path']))
 
+    def deploy_image(self):
+        import StringIO
+        import requests
+        import tarfile
+
+        os.chdir(self.params['path'])
+        self.log('Downloading url %s' % self.params['image'])
+        response = requests.get(self.params['image'], stream=True)
+        if not(response.ok):
+            self.fail_json(msg='Could not download file at %s' % self.params['image'])
+        try:
+            tar = tarfile.open(mode='r:*', fileobj=StringIO.StringIO(response.content))
+        except Exception, e:
+            self.fail_json(msg='Error while extracting archive %s' % e)
+        tar.extractall()
+
     def setup_policy(self):
         self.log('Setup policy-rc.d')
         policy_rc_d = open('%s/usr/sbin/policy-rc.d' % self.params['path'], 'w')
@@ -626,8 +651,11 @@ def main():
 
     if not si.params['partition'] is None:
         si.partition()
-    si.debootstrap()
-    si.install_extra_packages()
+    if si.params['image'] is not None and si.params['image'] != '':
+        si.deploy_image()
+        si.install_extra_packages()
+    else:
+        si.debootstrap()
     if not si.params['kernel'] is None:
         si.install_kernel()
     si.setup_root_passwd()
