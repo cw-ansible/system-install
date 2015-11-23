@@ -52,6 +52,9 @@
         state=link
       with_items:
         - { dist: trusty, def: gutsy }
+        - { dist: vivid, def: gutsy }
+        - { dist: willy, def: gutsy }
+        - { dist: xenial, def: gutsy }
 
 
     - name: Install Linux on local hard drive. This might take some time...
