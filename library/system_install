@@ -3,7 +3,7 @@
 
 # Copyright © 2014 Sébastien Gross <seb•ɑƬ•chezwam•ɖɵʈ•org>
 # Created: 2014-03-11
-# Last changed: 2016-01-25 14:26:42
+# Last changed: 2016-01-26 14:55:59
 #
 # This program is free software. It comes without any warranty, to
 # the extent permitted by applicable law. You can redistribute it
@@ -388,14 +388,14 @@ If PKGS is a list, a loop is performed for each item.
                 if fs['device'] == 'tmpfs' and fs['directory'] == '/' \
                    and fs['fstype'] == 'tmpfs':
                     continue
-                    dest.write('%s\t%s\t%s\t%s\t%s\t%s\n'
-                               % (
-                                   fs['device'],
-                                   fs['directory'],
-                                   fs['fstype'],
-                                   fs['options'],
-                                   fs['dump'],
-                                   fs['fsck']))
+                dest.write('%s\t%s\t%s\t%s\t%s\t%s\n'
+                           % (
+                               fs['device'],
+                               fs['directory'],
+                               fs['fstype'],
+                               fs['options'],
+                               fs['dump'],
+                               fs['fsck']))
         dest.close()
 
 
