@@ -59,20 +59,20 @@
 
     - name: Install Linux on local hard drive. This might take some time...
       system_install:
-        extra_packages='{{ si_extra_packages }}'
-        repository='{{ mirror }}'
-        distro='{{ distrib }}'
+        extra_packages: '{{ si_extra_packages }}'
+        repository: '{{ mirror }}'
+        distro: '{{ distrib }}'
         image: '{{ image | default() }}'
-        kernel=yes
-        partition='{{ partition }}'
+        kernel: yes
+        partition: '{{ partition }}'
 
     # Fix ssh configuration that prevent root login with password.
     - name: Fix ssh login
       lineinfile:
-        dest=/srv/target/etc/ssh/sshd_config
-        regexp='^PermitRootLogin .*'
-        line='PermitRootLogin yes'
-        backrefs=yes
+        dest: /srv/target/etc/ssh/sshd_config
+        regexp: '^PermitRootLogin .*'
+        line: 'PermitRootLogin yes'
+        backrefs: yes
 
     - name: configure grub
       lineinfile:
