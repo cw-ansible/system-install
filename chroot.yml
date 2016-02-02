@@ -83,5 +83,5 @@
       with_items:
         - { r: '^.*(GRUB_HIDDEN_TIMEOUT\s*=.*)', l: '# \1' }
         - { r: '^.*(GRUB_TERMINAL).*', l: '\1=console' }
-        - { r: '^.*(GRUB_CMDLINE_LINUX_DEFAULT).*' , l: '\1="verbose"' }
+        - { r: '^.*(GRUB_CMDLINE_LINUX_DEFAULT).*' , l: '\1="verbose net.ifnames=0"' }
         - { r: '^.*(GRUB_TIMEOUT).*=.*', l: '\1="5"' }
