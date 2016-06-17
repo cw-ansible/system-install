@@ -28,7 +28,8 @@
       - busybox
       - dropbear
       - lsb-release
-
+      - mdadm
+      
   tasks:
     - name: install debootstrap
       apt: pkg='{{ item }}' state=present update_cache=yes
