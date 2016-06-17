@@ -86,3 +86,16 @@
         - { r: '^.*(GRUB_TERMINAL).*', l: '\1=console' }
         - { r: '^.*(GRUB_CMDLINE_LINUX_DEFAULT).*' , l: '\1="verbose net.ifnames=0"' }
         - { r: '^.*(GRUB_TIMEOUT).*=.*', l: '\1="5"' }
+        - { r: '^(.*(GRUB_RECORDFAIL_TIMEOUT).*=.*)|$', l: 'GRUB_RECORDFAIL_TIMEOUT=5' }
+
+    - name: Fix revolconf tail issue (remove link)
+      file:
+        dest: /srv/target/etc/resolvconf/resolv.conf.d/tail
+        state: absent
+      ignore_errors: yes
+        
+    - name: Fix revolconf tail issue (create empty file)
+      file:
+        dest: /srv/target/etc/resolvconf/resolv.conf.d/tail
+        state: touch
+      ignore_errors: yes
