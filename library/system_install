@@ -152,6 +152,7 @@ class SystemInstall(AnsibleModule):
                 partition=dict(required=False, default=None),
                 root_passwd=dict(required=False, default='Ansible'),
                 reboot=dict(required=False, type='bool', default=False),
+                __ansible_tmp=dict(required=True),
             ),
             supports_check_mode=True)
         self.changed = False
@@ -161,7 +162,7 @@ class SystemInstall(AnsibleModule):
         self.fstab = None
         self.logfile = open('/tmp/system-install.log', 'w')
 
-        self.log('Starting install')
+        self._log('Starting install')
 
         self.vendor = None
         for v in self.DISTRO.keys():
@@ -178,21 +179,20 @@ class SystemInstall(AnsibleModule):
         if not os.path.isdir(self.params['path']):
             os.makedirs(self.params['path'])
 
-        self.log('Set install root to %s' % self.params['path'])
-
+        self._log('Set install root to %s' % self.params['path'])
 
         if not self.params['extra_packages'] is None:
             if type(self.params['extra_packages']) != type([]):
                 if self.params['extra_packages'].startswith('['):
                     self.params['extra_packages'] = \
-                        self.params['extra_packages'][1:-1].split(', ')
+                      [ x.strip("'") for x in self.params['extra_packages'][1:-1].split(', ') ]
                 else:
                     self.params['extra_packages'] = [ self.params['extra_packages'] ]
 
-        self.tmp_path = os.path.dirname(sys.argv[0])
+        self.tmp_path = self.params['__ansible_tmp']#os.path.dirname(sys.argv[0])
 
 
-    def log(self, msg):
+    def _log(self, msg):
         sep = '  '
         if isinstance(msg, str):
             msg = [ msg ]
@@ -228,14 +228,14 @@ If PKGS is a list, a loop is performed for each item.
         os.environ['DEBIAN_PRIORITY'] = 'critical'
 
         if update_cache:
-            self.log('Updating APT cache')
+            self._log('Updating APT cache')
             cmd = chroot_cmd + [ 'apt-get', 'update' ]
             rc, out, err = self.run_command(cmd)
             if rc != 0:
                 self.fail_json(msg="%s failed: %s" %
                     (' '.join(pipes.quote(arg) for arg in cmd), err),
                     stdout=out, stderr=err)
-            self.log(out.splitlines())
+            self._log(out.splitlines())
 
 
         if isinstance(pkgs, str):
@@ -247,14 +247,14 @@ If PKGS is a list, a loop is performed for each item.
             if _out != '':
                 self.msg.append("Package %s is installed in %s" % (p, target))
             else:
-                self.log('Installing packages: %s' % ','.join(pkgs))
+                self._log('Installing packages: %s' % ','.join(pkgs))
                 cmd = install_cmd + [ p ]
                 rc, _out, _err = self.run_command(cmd)
                 if rc != 0:
                     self.fail_json(msg="%s failed: %s" %
                         (' '.join(pipes.quote(arg) for arg in cmd), _err),
                         stdout=_out, stderr=_err)
-                self.log(_out.splitlines())
+                self._log(_out.splitlines())
                 self.changed = True
                 self.msg.append("%s installed in %s" % (p, target))
                 self.stdout.append(_out)
@@ -277,11 +277,11 @@ If PKGS is a list, a loop is performed for each item.
         cmd = [ '%s/setup-storage/fai-disk-info' % self.tmp_path ]
         (rc, out, err) = self.run_command(cmd)
         if rc != 0:
-            self.log('Searching for harddrive')
+            self._log('Searching for harddrive')
             self.fail_json(msg="%s failed: %s" %
                              (' '.join(pipes.quote(arg) for arg in cmd), err),
                              stdout=out, stderr=err)
-            self.log(out.splitlines())
+            self._log(out.splitlines())
         drives = out.splitlines()
         self.drives = []
         for drive in drives:
@@ -319,7 +319,7 @@ If PKGS is a list, a loop is performed for each item.
         ## cannot remove existing LVM partitions:
         # https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=717684
         # https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=681358
-        self.log('Removing old LVM partitions')
+        self._log('Removing old LVM partitions')
         for c in [
                 '''lvs --noheadings | awk '{print "/dev/" $2 "/" $1}' '''
                 '''| xargs --no-run-if-empty lvremove -f''',
@@ -329,7 +329,7 @@ If PKGS is a list, a loop is performed for each item.
             if rc != 0:
                 self.fail_json(msg="%s failed: %s\n\nPlease check that partitions are not in use (umount them is necessary)" % (c, err),
                                stdout=out, stderr=err)
-            self.log(out.splitlines())
+            self._log(out.splitlines())
 
         cwd = os.getcwd()
         os.chdir('%s/setup-storage' % self.tmp_path)
@@ -340,13 +340,13 @@ If PKGS is a list, a loop is performed for each item.
 
         # setup-storage parses {pv|vg|lv}display output.
         os.putenv('LC_ALL', 'C')
-        self.log('Running setup-storage -X -f conf.d/%s' % partition_conf)
+        self._log('Running setup-storage -X -f conf.d/%s' % partition_conf)
         (rc, out, err) = self.run_command(cmd)
         if rc != 0:
             self.fail_json(msg="%s failed: %s" %
                              (' '.join(pipes.quote(arg) for arg in cmd), err),
                              stdout=out, stderr=err)
-        self.log(out.splitlines())
+        self._log(out.splitlines())
         os.chdir(cwd)
 
     def parse_fstab(self):
@@ -417,14 +417,14 @@ If PKGS is a list, a loop is performed for each item.
                 cmd = [ 'mount', '-t', 'tmpfs', 'tmpfs', _target ]
             else:
                 cmd = [ 'mount', f['device'], _target ]
-            self.log('  Mounting %s to %s' % (f['device'], _target))
+            self._log('  Mounting %s to %s' % (f['device'], _target))
             rc, out, err = self.run_command(cmd)
             if rc:
                 self.fail_json(
                      msg="%s failed: %s" %
                      (' '.join(pipes.quote(arg) for arg in cmd), err),
                      stdout=out, stderr=err)
-            self.log(out.splitlines())
+            self._log(out.splitlines())
 
     def mount_pseudo(self):
         for p in self.PSEUDO_FS:
@@ -434,14 +434,14 @@ If PKGS is a list, a loop is performed for each item.
             if os.path.ismount(_target):
                 continue
             cmd = ['mount', '-o',  'bind', '/%s' % p , _target]
-            self.log('Mounting pseudo FS %s to %s' % (p, _target))
+            self._log('Mounting pseudo FS %s to %s' % (p, _target))
             rc, out, err = self.run_command(cmd)
             if rc:
                 self.fail_json(
                     msg="%s failed: %s" %
                     (' '.join(pipes.quote(arg) for arg in cmd), err),
                     stdout=out, stderr=err)
-            self.log(out.splitlines())
+            self._log(out.splitlines())
 
     def umount_pseudo(self):
         for p in self.PSEUDO_FS[::-1]:
@@ -449,14 +449,14 @@ If PKGS is a list, a loop is performed for each item.
             if not os.path.ismount(_target):
                 continue
             cmd = ['umount', '-l', _target]
-            self.log('Umounting pseudo FS %s' % _target)
+            self._log('Umounting pseudo FS %s' % _target)
             rc, out, err = self.run_command(cmd)
             if rc:
                 self.module.fail_json(
                     msg="%s failed: %s" %
                     (' '.join(pipes.quote(arg) for arg in cmd), err),
                     stdout=out, stderr=err)
-            self.log(out.splitlines())
+            self._log(out.splitlines())
 
     def umount_fs(self):
         fstab = self.fstab
@@ -466,14 +466,14 @@ If PKGS is a list, a loop is performed for each item.
             if not os.path.ismount(_target):
                 continue
             cmd = ['umount', '-l', _target]
-            self.log('Umounting FS %s' % _target)
+            self._log('Umounting FS %s' % _target)
             rc, out, err = self.run_command(cmd)
             if rc:
                 self.module.fail_json(
                     msg="%s failed: %s" %
                     (' '.join(pipes.quote(arg) for arg in cmd), err),
                     stdout=out, stderr=err)
-            self.log(out.splitlines())
+            self._log(out.splitlines())
 
     def mount(self):
         self.mount_fs()
@@ -499,7 +499,7 @@ If PKGS is a list, a loop is performed for each item.
             self.msg.append("debootstrap seems to have been run in %s" \
                         % (self.params['path']))
             return
-        self.log('Running debootstrap')
+        self._log('Running debootstrap')
         cmd = [debootstrap, '--arch', self.params['arch'],
                '--components', self.DISTRO[self.vendor]['components'],
                self.params['distro'], self.params['path'],
@@ -509,7 +509,7 @@ If PKGS is a list, a loop is performed for each item.
             self.fail_json(msg="%s failed: %s" %
                              (' '.join(pipes.quote(arg) for arg in cmd), err),
                              stdout=out, stderr=err)
-        self.log(out.splitlines())
+        self._log(out.splitlines())
         self.changed = True
         self.msg.append("debootstrap succeded in %s" % (self.params['path']))
 
@@ -519,7 +519,7 @@ If PKGS is a list, a loop is performed for each item.
         import tarfile
 
         os.chdir(self.params['path'])
-        self.log('Downloading url %s' % self.params['image'])
+        self._log('Downloading url %s' % self.params['image'])
         response = requests.get(self.params['image'], stream=True)
         if not(response.ok):
             self.fail_json(msg='Could not download file at %s' % self.params['image'])
@@ -530,19 +530,20 @@ If PKGS is a list, a loop is performed for each item.
         tar.extractall()
 
     def setup_policy(self):
-        self.log('Setup policy-rc.d')
+        self._log('Setup policy-rc.d')
         policy_rc_d = open('%s/usr/sbin/policy-rc.d' % self.params['path'], 'w')
         policy_rc_d.write('#!/bin/sh\n\nexit 101')
         policy_rc_d.close()
         os.chmod('%s/usr/sbin/policy-rc.d' % self.params['path'], 0o755)
 
     def remove_policy(self):
-        self.log('Remove policy-rc.d')
+        self._log('Remove policy-rc.d')
         os.unlink('%s/usr/sbin/policy-rc.d' % self.params['path'])
 
 
     def install_extra_packages(self):
         self.setup_policy()
+        self._log('params: %s' % self.params)
         self.install_pkgs(self.params['extra_packages'], chroot=True)
         self.remove_policy()
 
@@ -581,26 +582,26 @@ If PKGS is a list, a loop is performed for each item.
 
             # First generate GRUB configuration
             cmd = [ 'chroot', self.params['path'], 'update-grub']
-            self.log('running update-grub')
+            self._log('running update-grub')
             rc, out, err = self.run_command(cmd)
             if rc:
                 self.fail_json(msg="%s failed: %s" %
                                  (' '.join(pipes.quote(arg) for arg in cmd), err),
                                  stdout=out, stderr=err)
-            self.log(out.splitlines())
-            self.log(err.splitlines())
+            self._log(out.splitlines())
+            self._log(err.splitlines())
             # secondly install grub into boot device
             cmd = [ 'chroot', self.params['path'], 'grub-install',
                     self.disk_vars['BOOT_DEVICE'] ]
 
-            self.log('running grub-install %s' % self.disk_vars['BOOT_DEVICE'])
+            self._log('running grub-install %s' % self.disk_vars['BOOT_DEVICE'])
             rc, out, err = self.run_command(cmd)
             if rc:
                 self.fail_json(msg="%s failed: %s" %
                                  (' '.join(pipes.quote(arg) for arg in cmd), err),
                                  stdout=out, stderr=err)
-            self.log(out.splitlines())
-            self.log(err.splitlines())
+            self._log(out.splitlines())
+            self._log(err.splitlines())
             self.msg.append("grub-install succeded in %s" %
                             (self.disk_vars['BOOT_DEVICE']))
             self.stdout.append(out)
@@ -614,12 +615,12 @@ If PKGS is a list, a loop is performed for each item.
         cmd = 'echo "root:%s" | chroot %s chpasswd' % \
               ( self.params['root_passwd'], self.params['path'] )
         rc, out, err = self.run_command(cmd, use_unsafe_shell=True)
-        self.log('Update root password')
+        self._log('Update root password')
         if rc:
             self.fail_json(msg="%s failed: %s" %
                              (' '.join(pipes.quote(arg) for arg in cmd), err),
                              stdout=out, stderr=err)
-        self.log(out.splitlines())
+        self._log(out.splitlines())
         self.msg.append('root password succeded')
 
 
@@ -638,14 +639,14 @@ If PKGS is a list, a loop is performed for each item.
             iface.close
 
     def reboot(self):
-        self.log('Reboot server in 10s')
+        self._log('Reboot server in 10s')
         print self.jsonify({'changed': self.changed, 'failed': False, 'msg': 'Rebooting in 10s'})
         rc, out, err = self.run_command('( sleep 10 && reboot --force ) &', use_unsafe_shell=True)
         if rc:
             self.fail_json(msg="%s failed: %s" %
                              (' '.join(pipes.quote(arg) for arg in cmd), err),
                              stdout=out, stderr=err)
-        self.log(out.splitlines())
+        self._log(out.splitlines())
         self.msg.append('reboot in progress succeded')
         sys.exit(0)
 

@@ -2,7 +2,7 @@
 
 # Copyright © 2014 Sébastien Gross <seb•ɑƬ•chezwam•ɖɵʈ•org>
 # Created: 2014-03-11
-# Last changed: 2014-10-24 19:00:27
+# Last changed: 2016-08-23 19:00:29 
 #
 # This program is free software. It comes without any warranty, to
 # the extent permitted by applicable law. You can redistribute it
@@ -12,74 +12,84 @@
 #
 # This file is not part of Ansible
 
+# Make coding more python3-ish
+from __future__ import (absolute_import, division, print_function)
+__metaclass__ = type
+
 import os
 
-import ansible.utils.template as template
-from ansible.runner.return_data import ReturnData
-from ansible import utils
+from ansible import constants as C
+from ansible.plugins.action import ActionBase
+from ansible.utils.boolean import boolean
+from ansible.utils.hashing import checksum
+from ansible.utils.unicode import to_bytes
+
+try:
+    from __main__ import display
+except ImportError:
+    from ansible.utils.display import Display
+    display = Display()
 
 import glob
 import subprocess
 import pipes
 
+def display(msg):
+    from ansible.utils.display import Display
+    Display().display(msg, color='yellow')
+    
 
-## fixes https://github.com/ansible/ansible/issues/3518
-# http://mypy.pythonblogs.com/12_mypy/archive/1253_workaround_for_python_bug_ascii_codec_cant_encode_character_uxa0_in_position_111_ordinal_not_in_range128.html
-import sys
-reload(sys)
-sys.setdefaultencoding("utf8")
+class ActionModule(ActionBase):
 
-class ActionModule(object):
-
-    def __init__(self, runner):
-        self.runner = runner
-        #self.hard_drives = []
-
-    def _copy_setup_storage(self):
+    def _copy_setup_storage(self, tmp):
         """Copy C(setup-storage) and its default configuration to taget system."""
         for d in [ 'setup-storage', 'setup-storage/conf.d' ]:
-            self.runner._low_level_exec_command(
-                self.conn, 'mkdir -p %s/%s' % (self.tmp_path, d),
-                None, sudoable=False)
-            for file in glob.glob('%s/*' % d):
-                if os.path.isfile(file):
-                    self.conn.put_file(file, self.tmp_path + file)
+            for src in glob.glob('%s/*' % d):
+                if os.path.isfile(src):
+                    tmp_src = self._connection._shell.join_path(
+                        tmp, src)
+                    display('Copy %s -> %s' % (src, tmp_src))
+                    self._transfer_file(src, tmp_src)
 
-    def run(self, conn, tmp_path, module_name, module_args, inject,
-            complex_args=None, **kwargs):
+    def run(self, tmp=None, task_vars=None):
         ''' handler for file transfer operations '''
+        if task_vars is None:
+            task_vars = dict()
 
-        # load up options
-        options  = {}
-        if complex_args:
-            options.update(complex_args)
-        options.update(utils.parse_kv(module_args))
+        result = super(ActionModule, self).run(tmp, task_vars)
+        remote_user = task_vars.get('ansible_ssh_user') or self._play_context.remote_user
+        partition = self._task.args.get('partition', None)
+        faf     = self._task.first_available_file        
+        
+        display("in run()")
 
-        if "-tmp-" not in tmp_path:
-            tmp_path = self.runner._make_tmp_path(conn)
+        if tmp is None or "-tmp-" not in tmp:
+            tmp = self._make_tmp_path(remote_user)
+            self._cleanup_remote_tmp = False
+        self._low_level_execute_command('mkdir -p %s/setup-storage/conf.d' % tmp,sudoable=True)
+        # display("tmp = '%s'" % tmp)
 
-        self.tmp_path = tmp_path
-        self.conn = conn
-        self.facts = inject
-
-        self._copy_setup_storage()
-
-        # copy user defined partion file if needed
-        partition = options.get('partition')
+        
+        self._copy_setup_storage(tmp)
         if not partition is None and partition != 'auto':
-            fnd = utils.path_dwim(
-                os.path.sep.join((self.runner.basedir, 'files')),
-                partition)
-            if not os.path.exists(fnd):
-                fnd = utils.path_dwim_relative(
-                    partition, 'files', partition, self.runner.basedir)
-            self.conn.put_file(
-                fnd,
-                os.path.sep.join([self.tmp_path, 'setup-storage', 'conf.d', partition]))
+            
+            for d in [ 'files', 'setup-storage/conf.d' ]:
+               _file = self._loader.path_dwim_relative(
+                   '.', d, partition)
+               if os.path.exists(_file):
+                   _dest = self._connection._shell.join_path(
+                       tmp, 'setup-storage', 'conf.d', os.path.basename(partition))
+                   display('%s -> %s' % (_file, _dest ))
+                   self._transfer_file(_file, _dest)
 
-        ret=self.runner._execute_module(
-            conn, tmp_path, 'system_install',
-            module_args, inject=inject,
-            complex_args=complex_args)
+        new_module_args = self._task.args.copy()
+        new_module_args.update(dict(
+            __ansible_tmp = tmp
+            ))
+        result.update(
+            self._execute_module('system_install',
+                                 module_args=new_module_args,
+                                 task_vars=task_vars,
+                                 tmp=tmp))
 
-        return ret
+        return result
