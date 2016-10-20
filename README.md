@@ -34,13 +34,10 @@ Once the server is booted you first need to install ansible's dependencies.
 Then you can checkout ansible in `~/Developer/ansible`:
 
 	mkdir -p ~/Developer
-	git clone https://github.com/ansible/ansible.git ~/Developer 1.9
+	git clone https://github.com/ansible/ansible.git ~/Developer stable-2.2
 	cd ~/Developer/ansible
 	git submodule init
 	git submodule update
-
-Please note that this requires ansible 1.9. It is not yet compatible with
-ansible 2.x.
 
 Then you can setup the ansible environment:
 
