@@ -1,0 +1,13 @@
+# Min size: 0Gb
+disk_config disk1 bootable:1 disklabel:gpt-bios
+
+# XFS seems to have incompatible options. If you install a Jessie from a
+#  live Xenial you may get errors like:
+#
+# error: not a correct XFS inode.
+# error: attempt to read or write outside of partition.
+#
+#
+# See: https://patchwork.kernel.org/patch/9304955/
+
+primary		/	0-		xfs	rw,errors=remount-ro createopts="-f -b size=4096 -L / -m crc=0 -i projid32bit=0 -n ftype=0"
