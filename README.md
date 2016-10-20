@@ -33,11 +33,8 @@ Once the server is booted you first need to install ansible's dependencies.
 
 Then you can checkout ansible in `~/Developer/ansible`:
 
-	mkdir -p ~/Developer
-	git clone https://github.com/ansible/ansible.git ~/Developer stable-2.2
-	cd ~/Developer/ansible
-	git submodule init
-	git submodule update
+	mkdir -p ~/Developer/ansible
+	git clone --recurse-submodules https://github.com/ansible/ansible.git ~/Developer/ansible -b stable-2.2
 
 Then you can setup the ansible environment:
 
@@ -50,13 +47,22 @@ Then you can setup the ansible environment:
 You can install your host using command:
 
 	ansible-playbook chroot.yml -i inventory \
-		-e partition=partition-encrypted-tmpfs \
-		-e mirror=http://mirrors.online.net/ubuntu
-
+		-e mirror=http://ftp2.fr.debian.org/debian \
+		-e distrib=jessie
 
 Be careful because all data on your hard drive will be erased. You have been
 warned.
 
+If your hard drive has no partition label you may get an error such as:
+
+    Created data directory /tmp/fai
+    Starting setup-storage 1.5
+    Command had non-zero exit code
+
+Simply create a partition layout using `parted` (change `/dev/sda` with your
+hard drive configuration):
+
+	parted /dev/sda -s mklabel gpt
 
 
 ## Role Description
