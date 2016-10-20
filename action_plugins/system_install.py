@@ -2,7 +2,7 @@
 
 # Copyright © 2014 Sébastien Gross <seb•ɑƬ•chezwam•ɖɵʈ•org>
 # Created: 2014-03-11
-# Last changed: 2016-08-23 19:00:29 
+# Last changed: 2016-10-20 17:04:02
 #
 # This program is free software. It comes without any warranty, to
 # the extent permitted by applicable law. You can redistribute it
@@ -59,7 +59,6 @@ class ActionModule(ActionBase):
         result = super(ActionModule, self).run(tmp, task_vars)
         remote_user = task_vars.get('ansible_ssh_user') or self._play_context.remote_user
         partition = self._task.args.get('partition', None)
-        faf     = self._task.first_available_file        
         
         display("in run()")
 
