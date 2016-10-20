@@ -5,7 +5,7 @@
 # System installation
 
 
-This ansible playbook will install a Debian / Ubuntu system on current
+This Ansible playbook will install a Debian / Ubuntu system on current
 server.
 
 ## Prerequisite
@@ -34,11 +34,14 @@ Once the server is booted you first need to install ansible's dependencies.
 Then you can checkout ansible in `~/Developer/ansible`:
 
 	mkdir -p ~/Developer
-	git clone https://github.com/ansible/ansible.git ~/Developer
+	git clone https://github.com/ansible/ansible.git ~/Developer 1.9
 	cd ~/Developer/ansible
 	git submodule init
 	git submodule update
-	
+
+Please note that this requires ansible 1.9. It is not yet compatible with
+ansible 2.x.
+
 Then you can setup the ansible environment:
 
 	. ~/Developer/ansible/hacking/env-setup
@@ -103,6 +106,22 @@ This is the module file run on target host. It runs:
 - make sure required files are presents such as:
   - `/etc/fstab`
   - `/etc/network/interfaces` (setup for DHCP configuration)
+
+
+## Extra
+
+If you want to create an image of you newly installed system for future
+usage, you can run the following command as root:
+
+
+	tar --anchored --preserve-permissions --numeric-owner \
+		--xattrs --xattrs-include '*' --selinux --acls \
+		--one-file-system --exclude '/tmp/*' \
+		-czvf /tmp/`lsb_release -si`-`lsb_release -sc`-`uname -p`.tgz /
+
+The archive is not minimalistic but is a good start. If you want to create
+more optimized images for PXE usage have a look at
+[cw.ramdisk](https://github.com/cw-ansible/cw.ramdisk)
 
 ## Copyright
 
