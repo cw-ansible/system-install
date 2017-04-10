@@ -58,6 +58,10 @@ You can install your host using command:
 Be careful because all data on your hard drive will be erased. You have been
 warned.
 
+If your hard drive has a preexisting swap partition, your live CD might actually be using it, so turn it off:
+
+	swapoff -a
+
 If your hard drive has no partition label you may get an error such as:
 
     Created data directory /tmp/fai
