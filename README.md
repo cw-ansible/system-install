@@ -25,11 +25,16 @@ provider. Please check your provider support.
 
 ### Ansible setup
 
-Once the server is booted you first need to install ansible's dependencies.
+With Ubuntu, you need to add Universe section in `/etc/apt/sources.list`:
+
+	sudo apt-add-repository "deb http://archive.ubuntu.com/ubuntu/ yakkety universe"
+	sudo apt-add-repository "deb http://archive.ubuntu.com/ubuntu/ yakkety-security universe"
+	sudo apt-add-repository "deb http://archive.ubuntu.com/ubuntu/ yakkety-updates universe"
+
+Once the server is booted you first need to install ansible's dependencies:
 
 	sudo apt-get install --no-install-recommends \
-		rsync git python-jinja2 python-yaml
-	
+		rsync git python-jinja2 python-yaml python-paramiko	
 
 Then you can checkout ansible in `~/Developer/ansible`:
 
