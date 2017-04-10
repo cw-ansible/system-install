@@ -12,7 +12,10 @@
   
   vars:
     - distrib: trusty
-    - mirror: http://archive.ubuntu.com/ubuntu/
+    - live_mirror: http://archive.ubuntu.com/ubuntu/
+    - live_security_mirror: http://security.ubuntu.com/ubuntu/
+    - mirror: "{{ live_mirror }}"
+    - security_mirror: "{{ live_security_mirror }}"
     - partition: partition-whole-disk
     - si_extra_packages:
       - openssh-server
@@ -34,11 +37,14 @@
 
     - block:
       - name: add section universe to repository of {{ ansible_lsb.codename }}
-        apt_repository: repo=deb {{ mirror }} {{ ansible_lsb.codename }} universe
+        apt_repository:
+          repo: deb {{ live_mirror }} {{ ansible_lsb.codename }} universe
       - name: add section universe to repository of {{ ansible_lsb.codename }}-security
-        apt_repository: repo=deb {{ mirror_security }} {{ ansible_lsb.codename }}-security universe
+        apt_repository:
+          repo: deb {{ live_security_mirror }} {{ ansible_lsb.codename }}-security universe
       - name: add section universe to repository of {{ ansible_lsb.codename }}-updates
-        apt_repository: repo=deb {{ mirror }} {{ ansible_lsb.codename }}-updates universe
+        apt_repository:
+          repo: deb {{ live_mirror }} {{ ansible_lsb.codename }}-updates universe
       when: ansible_distribution == 'Ubuntu'
 
     - name: install debootstrap
