@@ -25,11 +25,10 @@ provider. Please check your provider support.
 
 ### Ansible setup
 
-Once the server is booted you first need to install ansible's dependencies.
+Once the server is booted you first need to install ansible's dependencies:
 
 	sudo apt-get install --no-install-recommends \
-		rsync git python-jinja2 python-yaml
-	
+		rsync git python-jinja2 python-yaml python-paramiko	
 
 Then you can checkout ansible in `~/Developer/ansible`:
 
@@ -53,6 +52,10 @@ You can install your host using command:
 Be careful because all data on your hard drive will be erased. You have been
 warned.
 
+If your hard drive has a preexisting swap partition, your live CD might actually be using it, and you may get an error such as `Device busy` so turn it off:
+
+	swapoff -a
+
 If your hard drive has no partition label you may get an error such as:
 
     Created data directory /tmp/fai
@@ -69,12 +72,12 @@ hard drive configuration):
 
 The install process runs in 2 parts:
 
-- install `debootstrap` and fix its scripts for recent distributions such as
+- Add section `universe` to the repository used (Ubuntu only)
+- Install `debootstrap` and fix its scripts for recent distributions such as
   `trusty` or `jessie`.
-- run `system_install` module.
+- Run `system_install` module.
 - Fix `ssh` configuration to allow `root` login (`PermitRootLogin` is set to `yes`).
-- Update `grub` configuration to be more verbose.
-
+- Update `GRUB` configuration to be more verbose.
 
 
 ### Configuration

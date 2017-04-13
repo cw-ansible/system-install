@@ -12,7 +12,10 @@
   
   vars:
     - distrib: trusty
-    - mirror: http://archive.ubuntu.com/ubuntu/
+    - live_mirror: http://archive.ubuntu.com/ubuntu/
+    - live_security_mirror: http://security.ubuntu.com/ubuntu/
+    - mirror: "{{ live_mirror }}"
+    - security_mirror: "{{ live_security_mirror }}"
     - partition: partition-whole-disk
     - si_extra_packages:
       - openssh-server
@@ -31,6 +34,19 @@
       - mdadm
       
   tasks:
+
+    - block:
+      - name: add section universe to repository of {{ ansible_lsb.codename }}
+        apt_repository:
+          repo: deb {{ live_mirror }} {{ ansible_lsb.codename }} universe
+      - name: add section universe to repository of {{ ansible_lsb.codename }}-security
+        apt_repository:
+          repo: deb {{ live_security_mirror }} {{ ansible_lsb.codename }}-security universe
+      - name: add section universe to repository of {{ ansible_lsb.codename }}-updates
+        apt_repository:
+          repo: deb {{ live_mirror }} {{ ansible_lsb.codename }}-updates universe
+      when: ansible_distribution == 'Ubuntu'
+
     - name: install debootstrap
       apt: pkg='{{ item }}' state=present update_cache=yes
       with_items:
@@ -38,7 +54,7 @@
         - cryptsetup
         - python-requests
         
-    - name: Fix debootstrap scripts
+    - name: fix debootstrap scripts
       copy:
         src="files/{{ item }}"
         dest="/{{ item }}"
@@ -46,7 +62,7 @@
         - usr/share/debootstrap/scripts/sid
         - usr/share/debootstrap/scripts/gutsy
 
-    - name: Link recent distributions
+    - name: link recent distributions
       file:
         src='{{ item.def }}'
         dest='/usr/share/debootstrap/scripts/{{ item.dist }}'
@@ -58,7 +74,7 @@
         - { dist: xenial, def: gutsy }
 
 
-    - name: Install Linux on local hard drive. This might take some time...
+    - name: install Linux on local hard drive, it might take some time...
       system_install:
         extra_packages: '{{ si_extra_packages }}'
         repository: '{{ mirror }}'
@@ -68,14 +84,14 @@
         partition: '{{ partition }}'
 
     # Fix ssh configuration that prevent root login with password.
-    - name: Fix ssh login
+    - name: fix ssh login
       lineinfile:
         dest: /srv/target/etc/ssh/sshd_config
         regexp: '^PermitRootLogin .*'
         line: 'PermitRootLogin yes'
         backrefs: yes
 
-    - name: configure grub
+    - name: configure GRUB
       lineinfile:
         dest: /srv/target/etc/default/grub
         regexp: '{{ item.r }}'
@@ -88,13 +104,13 @@
         - { r: '^.*(GRUB_TIMEOUT).*=.*', l: '\1="5"' }
         - { r: '^(.*(GRUB_RECORDFAIL_TIMEOUT).*=.*)|$', l: 'GRUB_RECORDFAIL_TIMEOUT=5' }
 
-    - name: Fix revolconf tail issue (remove link)
+    - name: fix revolconf tail issue (remove link)
       file:
         dest: /srv/target/etc/resolvconf/resolv.conf.d/tail
         state: absent
       ignore_errors: yes
         
-    - name: Fix revolconf tail issue (create empty file)
+    - name: fix revolconf tail issue (create empty file)
       file:
         dest: /srv/target/etc/resolvconf/resolv.conf.d/tail
         state: touch
